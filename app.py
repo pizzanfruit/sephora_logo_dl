@@ -10,24 +10,26 @@ import xlrd
 from azure.storage.blob import BlockBlobService, ContentSettings, PublicAccess
 from bs4 import BeautifulSoup
 from PIL import Image
+from fix import resize
 
 COUNT = 0
 
 
 def main():
-    directory = "logos2"
+    directory = "sample_logo"
     if not os.path.exists(directory):
         os.makedirs(directory)
 
     # Download logos
-    # wb = xlrd.open_workbook("brands.xlsx")
-    # wb.sheet_names()
-    # sh = wb.sheet_by_index(0)
-    # brands = sh.col_values(0)
-    # with open("output.txt", "w") as output:
-    #     for brand in brands:
-    #         # save_logo(brand, directory, output)
-    #         scrape_google_image(brand, directory, output)
+    wb = xlrd.open_workbook("brands.xlsx")
+    wb.sheet_names()
+    sh = wb.sheet_by_index(0)
+    brands = sh.col_values(0)
+    with open("output.txt", "w") as output:
+        for brand in brands:
+            # save_logo(brand, directory, output)
+            scrape_google_image(brand, directory, output)
+    # Modify DB
     pg_dbname = os.environ["pg_dbname"]
     pg_user = os.environ["pg_user"]
     pg_host = os.environ["pg_host"]
@@ -62,12 +64,10 @@ def main():
         return
     cursor.execute(create_table_sql)
     # Upload to Azure Blob
-    print(os.environ['azure_storage_account'])
-    print(os.environ['azure_storage_key'])
-    container_name = 'sephora-test'
+    container_name = 'logos'
     block_blob_service = BlockBlobService(
         account_name=os.environ['azure_storage_account'], account_key=os.environ['azure_storage_key'])
-    if not block_blob_service.exists("sephora-test"):
+    if not block_blob_service.exists(container_name):
         block_blob_service.create_container(
             container_name, public_access=PublicAccess.Container)
     for file in os.listdir(directory):
@@ -117,9 +117,7 @@ def save_logo(brand, directory, output):
         image_file = directory + "/" + brand + ".png"
         urllib.request.urlretrieve(
             image_endpoint, image_file)
-        img1 = Image.open(image_file)
-        resized_img = img1.resize((800, 800), Image.ANTIALIAS)
-        resized_img.save(image_file)
+        resize(brand + ".png", directory, directory)
     except urllib.error.HTTPError:
         print(" >> No logo")
         output.write(" >> No logo")
@@ -128,12 +126,14 @@ def save_logo(brand, directory, output):
 
 
 def scrape_google_image(brand, directory, output):
+    global COUNT
+    COUNT = COUNT + 1
+    print(f"{COUNT}. Trying to get logo for {brand}")
     headers = {
         'User-Agent': "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/43.0.2357.134 Safari/537.36"}
     encoded_brand = urllib.parse.quote(brand)
     url = 'https://www.google.co.jp/search?q=' + \
         encoded_brand + '+logo&tbas=0&tbm=isch&tbs=isz:lt,islt'
-    print(url)
     page = requests.get(url, headers=headers)
     soup = BeautifulSoup(page.text, 'html.parser')
     results = soup.find_all("div", {"class": "rg_meta"})
@@ -156,8 +156,13 @@ def scrape_google_image(brand, directory, output):
     extension = chosen['ity'] if chosen['ity'] else "png"
     image_file = directory + "/" + brand + "." + extension
     png_image_file = directory + "/" + brand + ".png"
-    response = requests.get(chosen['ou'], headers=headers)
-    print(chosen['ou'])
+    print("URL: " + chosen['ou'])
+    try:
+        response = requests.get(chosen['ou'], headers=headers)
+    except Exception as connectionException:
+        print(connectionException)
+        print(" >> Google image fails")
+        return
     if response.status_code == 200:
         with open(image_file, 'wb') as f:
             f.write(response.content)
@@ -165,21 +170,7 @@ def scrape_google_image(brand, directory, output):
         print(" >> Google image fails")
         output.write(" >> Google image fails")
         return
-    # urllib.request.urlretrieve(
-    #     chosen, image_file)
-    print(image_file)
-    img1 = Image.open(image_file)
-    resized_img = img1.resize((800, 800))
-    try:
-        resized_img.save(image_file)
-    except OSError:
-        print(" >> Wrong format. Try to convert to png")
-        os.remove(image_file)
-        try:
-            resized_img.save(png_image_file)
-        except OSError:
-            print(" >> Fail to convert to png ")
-            return
+    resize(brand + "." + extension, directory, directory)
 
 
 if __name__ == '__main__':
