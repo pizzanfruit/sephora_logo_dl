@@ -9,7 +9,7 @@ cairocffi==0.8.0
 certifi==2017.11.5
 cffi==1.11.2
 chardet==3.0.4
-cryptography==2.1.4
+cryptography==2.3
 cssselect2==0.2.1
 defusedxml==0.5.0
 futures==3.1.1
